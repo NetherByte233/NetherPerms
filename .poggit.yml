@@ -1,0 +1,8 @@
+--- # Poggit-CI Manifest. Open the CI at https://poggit.pmmp.io/ci/NetherByte233/NetherPerms
+build-by-default: true
+branches:
+- main
+projects:
+  NetherPerms:
+    path: ""
+...
