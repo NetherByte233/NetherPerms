@@ -1,0 +1,259 @@
+name: NetherPerms
+main: NetherByte\NetherPerms\NetherPerms
+version: 0.1.0
+api: 5.0.0
+author: NetherByte
+website: https://example.com
+softdepend:
+  - PlaceholderAPI
+permissions:
+  netherperms.command:
+    default: op
+    description: Allows using /netherperms
+
+  netherperms.ui:
+    default: op
+    description: Allows opening the NetherPerms editor UI
+
+  netherperms.info:
+    default: op
+    description: View NetherPerms plugin info
+
+  netherperms.reload:
+    default: op
+    description: Reload NetherPerms configuration and data
+
+  netherperms.creategroup:
+    default: op
+    description: Create a new group
+
+  netherperms.deletegroup:
+    default: op
+    description: Delete an existing group
+
+  # Group permissions (flattened)
+  netherperms.group.info:
+    default: op
+    description: View group info
+
+  netherperms.group.setweight:
+    default: op
+    description: Set a group's weight
+
+  netherperms.group.setdisplayname:
+    default: op
+    description: Set a group's display name
+
+  netherperms.group.list:
+    default: op
+    description: List all groups
+
+  netherperms.group.meta:
+    default: op
+    description: Base node for group meta subcommands
+
+  netherperms.group.meta.set:
+    default: op
+    description: Set group meta key
+
+  netherperms.group.meta.unset:
+    default: op
+    description: Unset group meta key
+
+  netherperms.group.meta.list:
+    default: op
+    description: List group meta
+
+  netherperms.group.permission:
+    default: op
+    description: Base node for group permission subcommands
+
+  netherperms.group.permission.set:
+    default: op
+    description: Set or grant a permission node to a group
+
+  netherperms.group.permission.unset:
+    default: op
+    description: Remove a permission node from a group
+
+  netherperms.group.permission.list:
+    default: op
+    description: List a group's permissions
+
+  netherperms.group.parent:
+    default: op
+    description: Base node for group parent subcommands
+
+  netherperms.group.parent.set:
+    default: op
+    description: Replace parents at a context for a group
+
+  netherperms.group.parent.add:
+    default: op
+    description: Add a parent to a group
+
+  netherperms.group.parent.remove:
+    default: op
+    description: Remove a parent from a group
+
+  netherperms.group.parent.list:
+    default: op
+    description: List group parents
+
+  netherperms.group.listmembers:
+    default: op
+    description: List members of a group (paginated)
+
+  netherperms.group.showtracks:
+    default: op
+    description: Show tracks that include a specific group
+
+  netherperms.group.rename:
+    default: op
+    description: Rename an existing group (updates references)
+
+  netherperms.group.clone:
+    default: op
+    description: Clone an existing group into a new group
+
+  # User permissions (flattened)
+  netherperms.user:
+    default: op
+    description: Access user management and UI
+
+  netherperms.user.info:
+    default: op
+    description: View detailed user info
+
+  netherperms.user.permission:
+    default: op
+    description: Base node for user permission subcommands
+
+  netherperms.user.permission.set:
+    default: op
+    description: Set or grant a permission node to a user
+
+  netherperms.user.permission.unset:
+    default: op
+    description: Remove a permission node from a user
+
+  netherperms.user.permission.list:
+    default: op
+    description: List a user's permissions
+
+  netherperms.user.permission.settemp:
+    default: op
+    description: Temporarily set a permission for a user
+
+  netherperms.user.permission.unsettemp:
+    default: op
+    description: Remove a temporary permission for a user
+
+  netherperms.user.meta:
+    default: op
+    description: Base node for user meta subcommands
+
+  netherperms.user.meta.set:
+    default: op
+    description: Set user meta key
+
+  netherperms.user.meta.unset:
+    default: op
+    description: Unset user meta key
+
+  netherperms.user.meta.list:
+    default: op
+    description: List user meta
+
+  netherperms.user.parent:
+    default: op
+    description: Base node for user parent subcommands
+
+  netherperms.user.parent.set:
+    default: op
+    description: Replace parents at a context for a user
+
+  netherperms.user.parent.add:
+    default: op
+    description: Add a parent group to a user
+
+  netherperms.user.parent.remove:
+    default: op
+    description: Remove a parent group from a user
+
+  netherperms.user.parent.list:
+    default: op
+    description: List a user's parents
+
+  netherperms.user.parent.switchprimarygroup:
+    default: op
+    description: Switch a user's stored primary group without changing memberships
+
+  netherperms.user.primary:
+    default: op
+    description: Base node for primary group management
+
+  netherperms.user.primary.show:
+    default: op
+    description: Show a user's primary group
+
+  netherperms.user.primary.set:
+    default: op
+    description: Set a user's primary group
+
+  netherperms.user.primary.unset:
+    default: op
+    description: Unset a user's primary group
+
+  # Track permissions (flattened)
+  netherperms.track:
+    default: op
+    description: Base node for track commands
+
+  netherperms.track.create:
+    default: op
+    description: Create a new track
+
+  netherperms.track.delete:
+    default: op
+    description: Delete a track
+
+  netherperms.track.list:
+    default: op
+    description: List tracks
+
+  netherperms.track.set:
+    default: op
+    description: Define the ordered groups of a track
+
+  netherperms.track.show:
+    default: op
+    description: Show a track's groups
+
+  netherperms.track.rename:
+    default: op
+    description: Rename an existing track
+
+  netherperms.track.clone:
+    default: op
+    description: Clone an existing track into a new track
+
+  netherperms.track.insert:
+    default: op
+    description: Insert a group into a track at a specific position
+
+  netherperms.track.remove:
+    default: op
+    description: Remove a group from a track
+
+  netherperms.track.append:
+    default: op
+    description: Append a group to the end of a track
+
+  netherperms.promote:
+    default: op
+    description: Promote a user along a track
+
+  netherperms.demote:
+    default: op
+    description: Demote a user along a track
