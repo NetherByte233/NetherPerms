@@ -808,7 +808,7 @@ final class PermissionManager
      */
     private function makeContextKey(array $context) : string
     {
-        $allowed = ['world','gamemode','dimension'];
+        $allowed = ['world','gamemode'];
         $parts = [];
         foreach ($allowed as $k) {
             if (isset($context[$k]) && $context[$k] !== '') {

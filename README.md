@@ -6,7 +6,7 @@ NetherPerms is a modern permissions plugin for PocketMine-MP with:
 - Auto-creation of a `default` group if none exist.
 - Primary group support, group weights, and display meta (prefix/suffix).
 - Track management with promote/demote commands.
-- Context-aware permissions (world, gamemode, dimension).
+- Context-aware permissions (world, gamemode).
 - Wildcard permissions expansion (e.g., `some.perm.*`).
 - Temporary permissions with expiration.
 
@@ -40,7 +40,7 @@ Deletion behavior:
 
 ## Commands
 
-A full list with examples and permissions is in [COMMAND_USAGE.md](cci:7://file:///c:/Users/Aankit_Dobriyal/Desktop/minecraft/Perms/NetherPerms/COMMAND_USAGE.md:0:0-0:0).
+A full list with examples and permissions is in [COMMAND_USAGE.md](COMMAND_USAGE.md).
 
 Highlights:
 - Groups: create/delete/rename/clone, permissions, parents, weights, meta, list members, show tracks.
@@ -53,7 +53,7 @@ Highlights:
 ## Contexts
 
 A context is a set of conditions where a permission or parent applies:
-- Supported keys: `world`, `gamemode`, `dimension`.
+- Supported keys: `world`, `gamemode`.
 - Format: `key=value` pairs separated by commas, e.g. `world=world,gamemode=survival`.
 
 If no context is provided, the change applies globally.
@@ -66,13 +66,7 @@ If no context is provided, the change applies globally.
 ## Installation
 
 1. Place the plugin into your `plugins/` directory.
-2. Start the server; `groups/default.yml` will be created if needed.
-3. Configure groups, users, and tracks via commands.
-
-## Migration from Legacy Files
-
-- If `users.yml`/[groups.yml](cci:7://file:///c:/Users/Aankit_Dobriyal/Desktop/minecraft/Perms/NetherPerms/resources/groups.yml:0:0-0:0) already exist and no per-entity files exist, they will be read to populate in-memory data on first startup.
-- From then on, all writes go to per-entity files only. Legacy files are never recreated to avoid confusion.
+2. Configure groups, users, and tracks via commands.
 
 ## Troubleshooting
 
@@ -81,8 +75,8 @@ If no context is provided, the change applies globally.
 - Promote/Demote says “Track not found”:
   - Verify the track exists and contains at least two ordered groups.
 - Permission isn’t applying:
-  - Check priority and meta, and whether contexts limit the scope (world/gamemode/dimension).
+  - Check priority and meta, and whether contexts limit the scope (world/gamemode).
 
 ## License
 
-MIT
+[MIT](LICENSE)

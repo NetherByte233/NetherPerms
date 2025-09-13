@@ -743,7 +743,7 @@ final class NetherPermsCommand extends Command
      */
     private function parseContextArgs(array $args, int $start) : array
     {
-        $allowed = ['world','gamemode','dimension'];
+        $allowed = ['world','gamemode'];
         $out = [];
         for ($i = $start; $i < count($args); $i++) {
             $token = (string)$args[$i];
