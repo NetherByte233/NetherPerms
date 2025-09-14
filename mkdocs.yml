@@ -1,0 +1,53 @@
+site_name: NetherPerms
+theme:
+  name: material
+  logo: assets/icon.png
+  favicon: assets/icon.png
+  palette:
+    # light mode
+    - scheme: default
+      primary: green
+      accent: deep purple
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    # dark mode
+    - scheme: slate
+      primary: deep purple
+      accent: green
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - content.tabs.link
+    - content.cards
+    - navigation.instant
+    - toc.follow
+    - navigation.expand
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Configuration: configuration.md
+  - Command Usage:
+      - Commands: command-usage/index.md
+      - General: command-usage/general.md
+      - User: command-usage/user.md
+      - Groups: command-usage/groups.md
+      - Tracks: command-usage/tracks.md
+      - Permission: command-usage/permission.md
+      - Parents: command-usage/parents.md
+      - Meta: command-usage/meta.md
+  - Placeholders: placeholders.md
+  - FAQ: faq.md
+
+plugins:
+  - search
+
+markdown_extensions:
+  - attr_list
+  - md_in_html
+  - pymdownx.tasklist:
+      custom_checkbox: true
