@@ -268,7 +268,28 @@ final class NetherPermsExpansion extends Expansion
                 if ($remain > $best) $best = $remain;
             }
         }
-        // includeInherited is unused: group-temp not supported in data model
+        // Consider group temporary permissions
+        $groups = $pm->getUserGroups($uuid);
+        if ($includeInherited) {
+            $groups = $this->computeInheritedGroups($pm->getAllGroups(), $groups);
+        } else {
+            $groups = array_values(array_unique(array_map('strtolower', $groups)));
+        }
+        $allGroups = $pm->getAllGroups();
+        foreach ($groups as $g) {
+            $gd = $allGroups[strtolower((string)$g)] ?? null;
+            if ($gd === null) continue;
+            $gtemps = (array)($gd['temp_permissions'] ?? []);
+            foreach ($gtemps as $ent) {
+                if (!is_array($ent)) continue;
+                $n = isset($ent['node']) ? (string)$ent['node'] : '';
+                $exp = isset($ent['expires']) ? (int)$ent['expires'] : 0;
+                if ($n !== '' && $n === $node && $exp > $now) {
+                    $remain = $exp - $now;
+                    if ($remain > $best) $best = $remain;
+                }
+            }
+        }
         return $best;
     }
 

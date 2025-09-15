@@ -1,15 +1,68 @@
+######################################################################
+# ___________________________________________________________________#
+# |                                                                 |#
+# |   _   _      _   _               ____                           |#
+# |  | \ | | ___| |_| |__   ___ _ __|  _ \ ___ _ __ _ __ ___  ___   |# 
+# |  |  \| |/ _ \ __| '_ \ / _ \ '__| |_) / _ \ '__| '_ ` _ \/ __|  |#
+# |  | |\  |  __/ |_| | | |  __/ |  |  __/  __/ |  | | | | | \__ \  |#
+# |  |_| \_|\___|\__|_| |_|\___|_|  |_|   \___|_|  |_| |_| |_|___/  |#
+# |_________________________________________________________________|#
+# |                                                                 |#
+# | Wiki: https://github.com/NetherByte233/NetherPerms/wiki         |#
+# | Bug Report: https://github.com/NetherByte233/NetherPerms/issues |#
+# |                                                                 |#
+# | Each option in this file is documented and explained here:      |#
+# | => https://netherbyte233.github.io/NetherPerms/configuration/   |#
+# |_________________________________________________________________|#
+######################################################################
+
 # NetherPerms configuration
-# default-group: The group assigned to players on first join
-# track: optional ordered list of groups for promotions (not yet used in MVP)
-default-group: default
+
+#_____________________________________________________________
+#| ░█▀▀░▀█▀░█▀█░█▀▄░█▀█░█▀▀░█▀▀░░░█▀▀░█▀▀░▀█▀░▀█▀░▀█▀░█▀█░█▀▀ |
+#| ░▀▀█░░█░░█░█░█▀▄░█▀█░█░█░█▀▀░░░▀▀█░█▀▀░░█░░░█░░░█░░█░█░█░█ |
+#| ░▀▀▀░░▀░░▀▀▀░▀░▀░▀░▀░▀▀▀░▀▀▀░░░▀▀▀░▀▀▀░░▀░░░▀░░▀▀▀░▀░▀░▀▀▀ |
+#_____________________________________________________________|
 
 # Storage backend: yaml or sqlite
-storage: sqlite
+storage: yaml
 # SQLite database file (used when storage=sqlite)
 # Use plugin_data/... to store under the server data folder (proper-cased)
 sqlite-file: plugin_data/NetherPerms/netherperms.sqlite
 
 # Note: when storage=sqlite, users.yml and groups.yml are ignored and not created.
+
+# Permission evaluation behavior
+# If true (default), an explicit false will block later allows (deny has precedence).
+# If false, later allows can override earlier denies (useful when higher groups should override lower-group denies).
+deny-precedence: true
+
+# ________________________________________________________________________________________
+#|░█▀▀░█░█░█▀▀░▀█▀░█▀█░█▄█░▀█▀░▀▀█░█▀█░▀█▀░▀█▀░█▀█░█▀█░░░█▀▀░█▀▀░▀█▀░▀█▀░▀█▀░█▀█░█▀▀░█▀▀  |
+#|░█░░░█░█░▀▀█░░█░░█░█░█░█░░█░░▄▀░░█▀█░░█░░░█░░█░█░█░█░░░▀▀█░█▀▀░░█░░░█░░░█░░█░█░█░█░▀▀█  |
+#|░▀▀▀░▀▀▀░▀▀▀░░▀░░▀▀▀░▀░▀░▀▀▀░▀▀▀░▀░▀░░▀░░▀▀▀░▀▀▀░▀░▀░░░▀▀▀░▀▀▀░░▀░░░▀░░▀▀▀░▀░▀░▀▀▀░▀▀▀  |
+#|________________________________________________________________________________________|
+
+
+# Default group
+# The default group is the group that is assigned to a player when they join the server first time.
+default-group: default
+
+# Primary group calculation method
+# stored: The primary group is the group that is stored in the database.
+# parents-by-weight: The primary group is the group that has the highest weight in the parent chain.
+primary-group-calculation: stored #stored or parents-by-weight 
+
+# Temporary-add-behaviour
+# Controls how temporary permissions should be accumulated. The default behaviour is deny.
+
+# accumulate - the duration of any existing nodes will just be added to the new duration
+# replace - the longest duration will be kept, any others nodes will be forgotten
+# deny - the command will just fail if you try to add a duplicate temporary node
+
+temporary-add-behaviour: deny #accumulate or replace or deny
+
+# strip-op-on-apply
 
 # If true, remove OP from players when applying permissions so explicit false values can take effect.
 # Players in any of the listed bypass groups will keep OP (useful for owners).
@@ -17,16 +70,3 @@ strip-op-on-apply: true
 bypass-groups:
   - admin
 
-# Permission evaluation behavior
-# If true (default), an explicit false will block later allows (deny has precedence).
-# If false, later allows can override earlier denies (useful when higher groups should override lower-group denies).
-deny-precedence: true
-
-# Context notes:
-# You can use contexts on permissions like:
-#   pocketmine.command.gamemode.self:
-#     world=world,gamemode=creative: true
-#     world=world,gamemode=survival: false
-# Separators ',' or ';' are both accepted between key=value pairs.
-
-primary-group-calculation: stored #stored or parents-by-weight 

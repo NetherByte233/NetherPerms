@@ -35,6 +35,10 @@ permissions:
   netherperms.group.info:
     default: op
     description: View group info
+    
+  netherperms.group.permission.info:
+    default: op
+    description: View permission info
 
   netherperms.group.setweight:
     default: op
@@ -75,6 +79,14 @@ permissions:
   netherperms.group.permission.unset:
     default: op
     description: Remove a permission node from a group
+
+  netherperms.group.permission.settemp:
+    default: op
+    description: Temporarily set a permission node to a group
+
+  netherperms.group.permission.unsettemp:
+    default: op
+    description: Remove a temporary permission node from a group
 
   netherperms.group.permission.list:
     default: op
@@ -124,6 +136,10 @@ permissions:
   netherperms.user.info:
     default: op
     description: View detailed user info
+    
+  netherperms.user.permission.info:
+    default: op
+    description: View permission info
 
   netherperms.user.permission:
     default: op

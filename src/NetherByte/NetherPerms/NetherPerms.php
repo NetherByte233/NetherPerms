@@ -84,7 +84,8 @@ final class NetherPerms extends PluginBase implements Listener
         }
         $denyPrecedence = (bool)$this->getConfig()->get('deny-precedence', true);
         $primaryMode = (string)$this->getConfig()->get('primary-group-calculation', 'parents-by-weight');
-        $this->permManager = new PermissionManager($storage, $this->getConfig()->get('default-group', 'default'), $denyPrecedence, $primaryMode);
+        $tempBehaviour = (string)$this->getConfig()->get('temporary-add-behaviour', 'deny');
+        $this->permManager = new PermissionManager($storage, $this->getConfig()->get('default-group', 'default'), $denyPrecedence, $primaryMode, $tempBehaviour);
         $this->permManager->load();
         $this->ui = new UiController($this, $this->permManager);
 
@@ -202,6 +203,7 @@ final class NetherPerms extends PluginBase implements Listener
         $this->reloadConfig();
         $mode = (string)$this->getConfig()->get('primary-group-calculation', 'parents-by-weight');
         $this->permManager->setPrimaryGroupCalcMode($mode);
+        $this->permManager->setTempAddBehaviour((string)$this->getConfig()->get('temporary-add-behaviour', 'deny'));
         $this->permManager->load();
         foreach ($this->getServer()->getOnlinePlayers() as $player) {
             $this->applyPermissions($player);

@@ -138,13 +138,16 @@ final class YamlStorage implements StorageInterface
                 'permissions' => [],
                 'parents' => [],
                 'weight' => 0,
-                'meta' => []
+                'meta' => [],
+                'temp_permissions' => []
             ]);
+            $gtemps = (array)$cfg->get('temp_permissions', []);
             $out[$name] = [
                 'permissions' => (array)$cfg->get('permissions', []),
                 'parents' => (array)$cfg->get('parents', []),
                 'weight' => (int)$cfg->get('weight', 0),
                 'meta' => (array)$cfg->get('meta', []),
+                'temp_permissions' => $this->normalizeTempRead($gtemps),
             ];
         }
         return $out;
@@ -176,10 +179,11 @@ final class YamlStorage implements StorageInterface
                 'primary' => null,
                 'meta' => [],
             ]);
+            $utemps = (array)$cfg->get('temp_permissions', []);
             $out[$uuid] = [
                 'name' => (string)$cfg->get('name', $uuid),
                 'permissions' => (array)$cfg->get('permissions', []),
-                'temp_permissions' => (array)$cfg->get('temp_permissions', []),
+                'temp_permissions' => $this->normalizeTempRead($utemps),
                 'groups' => (array)$cfg->get('groups', []),
                 'primary' => $cfg->get('primary', null),
                 'meta' => (array)$cfg->get('meta', []),
@@ -207,6 +211,7 @@ final class YamlStorage implements StorageInterface
             $cfg->set('parents', (array)($data['parents'] ?? []));
             $cfg->set('weight', (int)($data['weight'] ?? 0));
             $cfg->set('meta', (array)($data['meta'] ?? []));
+            $cfg->set('temp_permissions', $this->prepareTempForWrite((array)($data['temp_permissions'] ?? [])));
             $cfg->save();
         }
     }
@@ -252,11 +257,71 @@ final class YamlStorage implements StorageInterface
             $cfg = new Config($file, Config::YAML);
             $cfg->set('name', (string)($data['name'] ?? $uuid));
             $cfg->set('permissions', $permissions);
-            $cfg->set('temp_permissions', $temp);
+            $cfg->set('temp_permissions', $this->prepareTempForWrite($temp));
             $cfg->set('groups', $groups);
             $cfg->set('primary', $primary);
             $cfg->set('meta', $meta);
             $cfg->save();
         }
+    }
+
+    /**
+     * Convert YAML-stored temp entries to runtime format with absolute 'expires'.
+     * Supports legacy entries storing absolute 'expires' and new entries storing 'remaining'.
+     * @param array<int,mixed> $list
+     * @return array<int,array{node:string,value:bool,context:string,expires:int}>
+     */
+    private function normalizeTempRead(array $list) : array
+    {
+        $now = time();
+        $out = [];
+        foreach ($list as $e) {
+            if (!is_array($e)) continue;
+            $node = isset($e['node']) ? (string)$e['node'] : '';
+            $val = isset($e['value']) ? (bool)$e['value'] : null;
+            $ctx = isset($e['context']) ? (string)$e['context'] : '';
+            if ($node === '' || $val === null) continue;
+            if (isset($e['remaining'])) {
+                $rem = max(0, (int)$e['remaining']);
+                $exp = $now + $rem;
+            } else {
+                $exp = isset($e['expires']) ? (int)$e['expires'] : 0;
+            }
+            if ($exp <= $now) continue;
+            $out[] = [
+                'node' => $node,
+                'value' => (bool)$val,
+                'context' => $ctx,
+                'expires' => $exp,
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Convert runtime temp entries with absolute 'expires' into YAML-storable entries with 'remaining'.
+     * @param array<int,mixed> $list
+     * @return array<int,array{node:string,value:bool,context:string,remaining:int}>
+     */
+    private function prepareTempForWrite(array $list) : array
+    {
+        $now = time();
+        $out = [];
+        foreach ($list as $e) {
+            if (!is_array($e)) continue;
+            $node = isset($e['node']) ? (string)$e['node'] : '';
+            $val = isset($e['value']) ? (bool)$e['value'] : null;
+            $ctx = isset($e['context']) ? (string)$e['context'] : '';
+            $exp = isset($e['expires']) ? (int)$e['expires'] : 0;
+            if ($node === '' || $val === null || $exp <= $now) continue;
+            $remaining = max(0, $exp - $now);
+            $out[] = [
+                'node' => $node,
+                'value' => (bool)$val,
+                'context' => $ctx,
+                'remaining' => $remaining,
+            ];
+        }
+        return $out;
     }
 }

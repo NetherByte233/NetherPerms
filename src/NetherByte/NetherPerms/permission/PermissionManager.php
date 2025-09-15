@@ -40,7 +40,9 @@ final class PermissionManager
     /** @var array<string, array<string,bool>> cache keyed by uuid + ctx key */
     private array $effectiveCache = [];
 
-    public function __construct(private StorageInterface $storage, private string $defaultGroup, bool $denyPrecedence = true, ?string $primaryGroupCalcMode = null)
+    private string $tempAddBehaviour = 'deny'; // accumulate|replace|deny
+
+    public function __construct(private StorageInterface $storage, private string $defaultGroup, bool $denyPrecedence = true, ?string $primaryGroupCalcMode = null, ?string $tempAddBehaviour = null)
     {
         $this->defaultGroup = strtolower($this->defaultGroup);
         $this->denyPrecedence = $denyPrecedence;
@@ -51,7 +53,18 @@ final class PermissionManager
             }
             $this->primaryGroupCalcMode = $mode;
         }
+        if ($tempAddBehaviour !== null) {
+            $this->setTempAddBehaviour($tempAddBehaviour);
+        }
     }
+
+    public function setTempAddBehaviour(string $behaviour) : void
+    {
+        $b = strtolower(trim($behaviour));
+        if (!in_array($b, ['accumulate','replace','deny'], true)) $b = 'deny';
+        $this->tempAddBehaviour = $b;
+    }
+    public function getTempAddBehaviour() : string { return $this->tempAddBehaviour; }
 
     /**
      * Find a known user's UUID by their last known name (case-insensitive).
@@ -79,11 +92,21 @@ final class PermissionManager
             $meta = (array)($info['meta'] ?? []);
             // normalize all meta values to strings
             foreach ($meta as $mk => $mv) { $meta[$mk] = (string)$mv; }
+            // normalize temp_permissions and purge expired
+            $temp = (array)($info['temp_permissions'] ?? []);
+            $now = time();
+            $temp = array_values(array_filter($temp, function($e) use ($now) {
+                if (!is_array($e)) return false;
+                $exp = isset($e['expires']) ? (int)$e['expires'] : 0;
+                $node = isset($e['node']) ? (string)$e['node'] : '';
+                return $node !== '' && $exp > $now;
+            }));
             $normalizedGroups[$lname] = [
                 'permissions' => (array)($info['permissions'] ?? []),
                 'parents' => $info['parents'],
                 'weight' => (int)($info['weight'] ?? 0),
-                'meta' => $meta
+                'meta' => $meta,
+                'temp_permissions' => $temp
             ];
         }
         $this->data['groups'] = $normalizedGroups;
@@ -213,7 +236,8 @@ final class PermissionManager
             'permissions' => [],
             'parents' => [],
             'weight' => 0,
-            'meta' => []
+            'meta' => [],
+            'temp_permissions' => []
         ];
         $this->syncGroupMetaNodes($group);
     }
@@ -301,6 +325,63 @@ final class PermissionManager
         $this->data['groups'][$group]['permissions'][$node] = $current;
     }
 
+    // --- Group temporary permissions ---
+    public function addGroupTempPermission(string $group, string $node, bool $value, int $durationSeconds, array $context = []) : bool
+    {
+        $group = strtolower($group);
+        if ($durationSeconds <= 0) return false;
+        $ckey = $this->makeContextKey($context);
+        $expires = time() + $durationSeconds;
+        if (!isset($this->data['groups'][$group]['temp_permissions']) || !is_array($this->data['groups'][$group]['temp_permissions'])) {
+            $this->data['groups'][$group]['temp_permissions'] = [];
+        }
+        $list = (array)$this->data['groups'][$group]['temp_permissions'];
+        $now = time();
+        $existing = array_values(array_filter($list, fn($e) => is_array($e) && (($e['node'] ?? '') === $node) && (($e['context'] ?? '') === $ckey) && (($e['expires'] ?? 0) > $now)));
+        if (!empty($existing)) {
+            $beh = $this->tempAddBehaviour;
+            if ($beh === 'deny') {
+                return false;
+            } elseif ($beh === 'replace') {
+                $maxRemain = 0;
+                foreach ($existing as $e) { $r = ((int)$e['expires']) - $now; if ($r > $maxRemain) $maxRemain = $r; }
+                $keep = max($maxRemain, $durationSeconds);
+                $list = array_values(array_filter($list, fn($e) => !(is_array($e) && (($e['node'] ?? '') === $node) && (($e['context'] ?? '') === $ckey))));
+                $list[] = ['node'=>$node,'value'=>$value,'context'=>$ckey,'expires'=>$now + $keep];
+                $this->data['groups'][$group]['temp_permissions'] = $list;
+                return true;
+            } elseif ($beh === 'accumulate') {
+                $totalRemain = 0;
+                foreach ($existing as $e) { $r = ((int)$e['expires']) - $now; if ($r > 0) $totalRemain += $r; }
+                $newExp = $now + $totalRemain + $durationSeconds;
+                $list = array_values(array_filter($list, fn($e) => !(is_array($e) && (($e['node'] ?? '') === $node) && (($e['context'] ?? '') === $ckey))));
+                $list[] = ['node'=>$node,'value'=>$value,'context'=>$ckey,'expires'=>$newExp];
+                $this->data['groups'][$group]['temp_permissions'] = $list;
+                return true;
+            }
+        }
+        $list[] = [ 'node'=>$node, 'value'=>$value, 'context'=>$ckey, 'expires'=>$expires ];
+        $this->data['groups'][$group]['temp_permissions'] = $list;
+        return true;
+    }
+
+    public function unsetGroupTempPermission(string $group, string $node, array $context = []) : void
+    {
+        $group = strtolower($group);
+        $ckey = $this->makeContextKey($context);
+        $list = (array)($this->data['groups'][$group]['temp_permissions'] ?? []);
+        $out = [];
+        foreach ($list as $e) {
+            if (!is_array($e)) continue;
+            $n = isset($e['node']) ? (string)$e['node'] : '';
+            if ($n === '') continue;
+            if ($n !== $node) { $out[] = $e; continue; }
+            if ($ckey !== '' && isset($e['context']) && (string)$e['context'] !== $ckey) { $out[] = $e; continue; }
+            // else drop
+        }
+        $this->data['groups'][$group]['temp_permissions'] = array_values($out);
+    }
+
     public function addParent(string $group, string $parent) : bool
     {
         $group = strtolower($group);
@@ -372,6 +453,21 @@ final class PermissionManager
                 if ($res === null) continue;
                 $candidates[$node][] = ['value' => $res['value'], 'spec' => $res['spec'], 'source' => 'group'];
             }
+            // include group's temporary permissions
+            $temps = (array)($this->data['groups'][$g]['temp_permissions'] ?? []);
+            foreach ($temps as $ent) {
+                if (!is_array($ent)) continue;
+                $node = isset($ent['node']) ? (string)$ent['node'] : '';
+                $val = isset($ent['value']) ? (bool)$ent['value'] : null;
+                $exp = isset($ent['expires']) ? (int)$ent['expires'] : 0;
+                $ck = isset($ent['context']) ? (string)$ent['context'] : '';
+                if ($node === '' || $val === null || $exp <= time()) continue;
+                $conds = $this->parseContextKey($ck);
+                if ($this->contextMatches($conds, $context)) {
+                    $spec = count($conds);
+                    $candidates[$node][] = ['value' => (bool)$val, 'spec' => $spec, 'source' => 'group-temp'];
+                }
+            }
         }
         // Collect user candidates (processed after groups so equal-specificity can override when deny-precedence is false)
         foreach (($this->data['users'][$uuid]['permissions'] ?? []) as $node => $value) {
@@ -395,18 +491,18 @@ final class PermissionManager
             }
         }
         // Decide per node by highest specificity. If tie:
-        // - Prefer user-temp entries over others (so temp grants can override group denies at equal specificity)
+        // - Prefer NON-temporary entries over temporary ones (permanent priority)
         // - Then apply deny precedence or last-added wins among the remaining set
         $effective = [];
         foreach ($candidates as $node => $list) {
             $bestSpec = -1;
             foreach ($list as $ent) { if ($ent['spec'] > $bestSpec) $bestSpec = $ent['spec']; }
             $top = array_values(array_filter($list, fn($e) => $e['spec'] === $bestSpec));
-            // Prefer user-temp entries if present at this specificity
-            $hasUserTempAtTop = false;
-            foreach ($top as $ent) { if (($ent['source'] ?? '') === 'user-temp') { $hasUserTempAtTop = true; break; } }
-            if ($hasUserTempAtTop) {
-                $top = array_values(array_filter($top, fn($e) => ($e['source'] ?? '') === 'user-temp'));
+            // Prefer non-temporary over temporary at tie
+            $hasNonTemp = false;
+            foreach ($top as $ent) { if (($ent['source'] ?? '') !== 'user-temp' && ($ent['source'] ?? '') !== 'group-temp') { $hasNonTemp = true; break; } }
+            if ($hasNonTemp) {
+                $top = array_values(array_filter($top, fn($e) => ($e['source'] ?? '') !== 'user-temp' && ($e['source'] ?? '') !== 'group-temp'));
             }
             $value = null;
             if ($this->denyPrecedence) {
@@ -876,27 +972,46 @@ final class PermissionManager
      * Add a temporary user permission node with a duration in seconds.
      * @param array{world?:string,gamemode?:string,dimension?:string} $context
      */
-    public function addUserTempPermission(string $uuid, string $node, bool $value, int $durationSeconds, array $context = []) : void
+    public function addUserTempPermission(string $uuid, string $node, bool $value, int $durationSeconds, array $context = []) : bool
     {
-        if ($durationSeconds <= 0) return;
+        if ($durationSeconds <= 0) return false;
         $ckey = $this->makeContextKey($context);
         $expires = time() + $durationSeconds;
         if (!isset($this->data['users'][$uuid]['temp_permissions']) || !is_array($this->data['users'][$uuid]['temp_permissions'])) {
             $this->data['users'][$uuid]['temp_permissions'] = [];
         }
-        // Remove any existing identical entry to avoid duplicates
-        $this->data['users'][$uuid]['temp_permissions'] = array_values(array_filter(
-            (array)$this->data['users'][$uuid]['temp_permissions'],
-            function($e) use ($node, $ckey) {
-                return !is_array($e) || (isset($e['node']) && $e['node'] === $node && isset($e['context']) && $e['context'] === $ckey) ? false : true;
+        $list = (array)$this->data['users'][$uuid]['temp_permissions'];
+        // Find existing entries for same node+context
+        $now = time();
+        $existing = array_values(array_filter($list, fn($e) => is_array($e) && (($e['node'] ?? '') === $node) && (($e['context'] ?? '') === $ckey) && (($e['expires'] ?? 0) > $now)));
+        if (!empty($existing)) {
+            $beh = $this->tempAddBehaviour;
+            if ($beh === 'deny') {
+                return false;
+            } elseif ($beh === 'replace') {
+                $maxRemain = 0;
+                foreach ($existing as $e) { $r = ((int)$e['expires']) - $now; if ($r > $maxRemain) $maxRemain = $r; }
+                $keep = max($maxRemain, $durationSeconds);
+                // remove existing
+                $list = array_values(array_filter($list, fn($e) => !(is_array($e) && (($e['node'] ?? '') === $node) && (($e['context'] ?? '') === $ckey))));
+                $list[] = ['node'=>$node,'value'=>$value,'context'=>$ckey,'expires'=>$now + $keep];
+                $this->data['users'][$uuid]['temp_permissions'] = $list;
+                return true;
+            } elseif ($beh === 'accumulate') {
+                $totalRemain = 0;
+                foreach ($existing as $e) { $r = ((int)$e['expires']) - $now; if ($r > 0) $totalRemain += $r; }
+                $newExp = $now + $totalRemain + $durationSeconds;
+                // remove existing
+                $list = array_values(array_filter($list, fn($e) => !(is_array($e) && (($e['node'] ?? '') === $node) && (($e['context'] ?? '') === $ckey))));
+                $list[] = ['node'=>$node,'value'=>$value,'context'=>$ckey,'expires'=>$newExp];
+                $this->data['users'][$uuid]['temp_permissions'] = $list;
+                return true;
             }
-        ));
-        $this->data['users'][$uuid]['temp_permissions'][] = [
-            'node' => $node,
-            'value' => $value,
-            'context' => $ckey,
-            'expires' => $expires
-        ];
+        }
+        // default: add fresh
+        $list[] = [ 'node'=>$node, 'value'=>$value, 'context'=>$ckey, 'expires'=>$expires ];
+        $this->data['users'][$uuid]['temp_permissions'] = $list;
+        return true;
     }
 
     /**
