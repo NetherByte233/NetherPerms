@@ -42,7 +42,7 @@ final class NetherPermsCommand extends Command
                 '/np deletegroup <group>' . "\n" .
                 '/np group <group> info' . "\n" .
                 '/np group <group> permission <set|unset> <node> [true|false] [context...]' . "\n" .
-                '/np group <group> parent <add|set|remove|list> [parent]' . "\n" .
+                '/np group <group> parent <add|set|remove|info|addtemp|removetemp> [parent]' . "\n" .
                 '/np group <group> setweight <int>' . "\n" .
                 '/np group <group> setdisplayname <name>' . "\n" .
                 '/np group <group> meta <set|unset> <prefix|suffix> [value]' . "\n" .
@@ -51,11 +51,11 @@ final class NetherPermsCommand extends Command
                 '/np group <group> rename <newName>' . "\n" .
                 '/np group <group> clone <cloneName>' . "\n" .
                 '/np user <user> info' . "\n" .
-                '/np user <user> parent <add|set|remove|switchprimarygroup> <group> [context...]' . "\n" .
+                '/np user <user> parent <add|set|remove|switchprimarygroup|info|addtemp|removetemp> <group> [context...]' . "\n" .
                 '/np user <user> permission <set|unset> <node> [true|false] [context...]' . "\n" .
                 '/np user <user> permission <settemp|unsettemp> <node> [true|false] <duration> [context...]' . "\n" .
                 '/np user <user> meta <set|unset> <prefix|suffix> [value]' . "\n" .
-                '/np user <user> primary show|set <group>|unset' . "\n" .
+                '/np user <user> primary show|set|unset <group>' . "\n" .
                 '/np track <track> set <g1> <g2> ...' . "\n" .
                 '/np track <track> info' . "\n" .
                 '/np track <track> rename <newName>' . "\n" .

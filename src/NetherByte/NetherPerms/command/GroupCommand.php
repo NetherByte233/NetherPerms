@@ -67,6 +67,18 @@ final class GroupCommand
                 $sender->sendMessage(TF::YELLOW . "Group: $group");
                 $sender->sendMessage('Weight: ' . $weight);
                 $sender->sendMessage('Parents: ' . (empty($parents) ? '(none)' : implode(', ', $parents)));
+                // Show temporary parents if any
+                $tp = (array)($g['temp_parents'] ?? []);
+                if (!empty($tp)) {
+                    $sender->sendMessage('Temp Parents:');
+                    $now = time();
+                    foreach ($tp as $ent) {
+                        if (!is_array($ent)) continue; $p = (string)($ent['parent'] ?? ''); $exp = (int)($ent['expires'] ?? 0); $ctx = (string)($ent['context'] ?? '');
+                        if ($p === '' || $exp <= $now) continue;
+                        $remain = $exp - $now; $ctxDisp = $ctx !== '' ? " ($ctx)" : '';
+                        $sender->sendMessage(" - $p: " . $this->formatRemaining($remain) . $ctxDisp);
+                    }
+                }
                 if (!empty($meta)) { foreach ($meta as $k => $v) { $sender->sendMessage("Meta $k: $v"); } }
                 return;
             case 'permission':
@@ -93,24 +105,57 @@ final class GroupCommand
                 return;
             case 'meta':
                 if (!$sender->hasPermission('netherperms.group.meta')) { $sender->sendMessage(TF::RED . 'You lack permission netherperms.group.meta'); return; }
-                if (count($args) < 5) { $sender->sendMessage(TF::RED . 'Usage: /np group ' . $group . ' meta <set|unset> <prefix|suffix> [value]'); return; }
-                $action = strtolower($args[3]); $key = strtolower($args[4]);
-                if (!in_array($key, ['prefix','suffix'], true)) { $sender->sendMessage(TF::RED . 'Key must be prefix or suffix'); return; }
+                $action = strtolower($args[3] ?? '');
+                if ($action === 'info') {
+                    $g = $pm->getGroup($group) ?? [];
+                    $sender->sendMessage(TF::YELLOW . "Meta for group '$group':");
+                    $base = (array)($g['meta'] ?? []);
+                    if (empty($base)) { $sender->sendMessage('Base: (none)'); } else { $sender->sendMessage('Base:'); foreach ($base as $k=>$v) { $sender->sendMessage(" - $k=\"$v\""); } }
+                    $mctx = (array)($g['meta_context'] ?? []);
+                    if (!empty($mctx)) { $sender->sendMessage('Contextual:'); foreach ($mctx as $k=>$map) { foreach ((array)$map as $ck=>$v) { $sender->sendMessage(" - $k=\"$v\" ($ck)"); } } }
+                    $tmeta = (array)($g['temp_meta'] ?? []); $now = time();
+                    if (!empty($tmeta)) { $sender->sendMessage('Temporary:'); foreach ($tmeta as $e) { if (!is_array($e)) continue; $k=(string)($e['key']??''); $v=(string)($e['value']??''); $ck=(string)($e['context']??''); $exp=(int)($e['expires']??0); if ($k===''||$v===''||$exp<=$now) continue; $sender->sendMessage(" - $k=\"$v\" " . $this->formatRemaining($exp-$now) . ($ck!==''?" ($ck)":"")); } }
+                    return;
+                }
+                $key = strtolower($args[4] ?? '');
+                if ($key === '') { $sender->sendMessage(TF::RED . 'Usage: /np group ' . $group . ' meta <info|set|unset|settemp|unsettemp> <key> [value] [context...]'); return; }
                 if ($action === 'set') {
                     if (!$sender->hasPermission('netherperms.group.meta.set')) { $sender->sendMessage(TF::RED . 'You lack permission netherperms.group.meta.set'); return; }
-                    $value = $args[5] ?? '';
-                    $pm->setGroupMeta($group, $key, $value); $pm->save();
-                    $this->applyOnlineAffectedByGroup($group);
-                    $sender->sendMessage(TF::GREEN . "Set $key for group '$group' to '$value'.");
+                    $value = (string)($args[5] ?? '');
+                    // Context after value
+                    $ctx = ContextUtil::parseContextArgs($args, 6);
+                    if (empty($ctx)) { $pm->setGroupMeta($group, $key, $value); }
+                    else { $pm->setGroupMetaContext($group, $key, $value, $ctx); }
+                    $pm->save(); $this->applyOnlineAffectedByGroup($group);
+                    $sender->sendMessage(TF::GREEN . "Set $key=\"$value\" for group '$group'" . (empty($ctx)?'':(' in context')) . '.');
                     return;
                 } elseif ($action === 'unset') {
                     if (!$sender->hasPermission('netherperms.group.meta.unset')) { $sender->sendMessage(TF::RED . 'You lack permission netherperms.group.meta.unset'); return; }
-                    $pm->unsetGroupMeta($group, $key); $pm->save();
-                    $this->applyOnlineAffectedByGroup($group);
-                    $sender->sendMessage(TF::GREEN . "Unset $key for group '$group'.");
+                    $value = $args[5] ?? null; // value not needed to unset
+                    $ctx = ContextUtil::parseContextArgs($args, 6);
+                    if (empty($ctx)) { $pm->unsetGroupMeta($group, $key); }
+                    else { $pm->unsetGroupMetaContext($group, $key, $ctx); }
+                    $pm->save(); $this->applyOnlineAffectedByGroup($group);
+                    $sender->sendMessage(TF::GREEN . "Unset $key for group '$group'" . (empty($ctx)?'':(' in context')) . '.');
+                    return;
+                } elseif ($action === 'settemp') {
+                    if (!$sender->hasPermission('netherperms.group.meta.settemp')) { $sender->sendMessage(TF::RED . 'You lack permission netherperms.group.meta.settemp'); return; }
+                    $value = (string)($args[5] ?? ''); $durationToken = (string)($args[6] ?? '');
+                    $seconds = DurationParser::parse($durationToken); if ($seconds === null || $seconds <= 0) { $sender->sendMessage(TF::RED . 'Invalid duration.'); return; }
+                    $ctx = ContextUtil::parseContextArgs($args, 7);
+                    $ok = $pm->addGroupTempMeta($group, $key, $value, $seconds, $ctx);
+                    if (!$ok) { $sender->sendMessage(TF::RED . 'Failed to add temporary meta.'); return; }
+                    $pm->save(); $this->applyOnlineAffectedByGroup($group);
+                    $sender->sendMessage(TF::GREEN . "Temporarily set $key=\"$value\" for '$group' $durationToken.");
+                    return;
+                } elseif ($action === 'unsettemp') {
+                    if (!$sender->hasPermission('netherperms.group.meta.unsettemp')) { $sender->sendMessage(TF::RED . 'You lack permission netherperms.group.meta.unsettemp'); return; }
+                    $ctx = ContextUtil::parseContextArgs($args, 5);
+                    $pm->unsetGroupTempMeta($group, $key, $ctx); $pm->save(); $this->applyOnlineAffectedByGroup($group);
+                    $sender->sendMessage(TF::GREEN . "Removed temporary meta $key for '$group'.");
                     return;
                 }
-                $sender->sendMessage(TF::RED . 'Unknown action (use set|unset)');
+                $sender->sendMessage(TF::RED . 'Unknown action (use info|set|unset|settemp|unsettemp)');
                 return;
             case 'listmembers':
                 if (!$sender->hasPermission('netherperms.group.listmembers')) { $sender->sendMessage(TF::RED . 'You lack permission netherperms.group.listmembers'); return; }
@@ -188,6 +233,18 @@ final class GroupCommand
                     }
                 }
             }
+            // Temporary permissions
+            $temps = (array)($g['temp_permissions'] ?? []);
+            if (!empty($temps)) {
+                $sender->sendMessage(TF::YELLOW . 'Temporary permissions:');
+                $now = time();
+                foreach ($temps as $ent) {
+                    if (!is_array($ent)) continue; $n = (string)($ent['node'] ?? ''); $val = isset($ent['value']) ? (bool)$ent['value'] : null; $exp = (int)($ent['expires'] ?? 0); $ctx = (string)($ent['context'] ?? '');
+                    if ($n === '' || $val === null || $exp <= $now) continue;
+                    $remain = $exp - $now; $ctxDisp = $ctx !== '' ? " ($ctx)" : '';
+                    $sender->sendMessage(" - $n=" . ($val?'true':'false') . ' ' . $this->formatRemaining($remain) . $ctxDisp);
+                }
+            }
             return;
         }
         if ($action === 'set') {
@@ -259,13 +316,50 @@ final class GroupCommand
             if (!$sender->hasPermission('netherperms.group.parent.remove')) { $sender->sendMessage(TF::RED . 'You lack permission netherperms.group.parent.remove'); return; }
             if ($parent === null) { $sender->sendMessage(TF::RED . 'Usage: /np group ' . $group . ' parent remove <parent>'); return; }
             $pm->removeParent($group, $parent); $pm->save(); $this->applyOnlineAffectedByGroup($group); $sender->sendMessage(TF::GREEN . "Removed parent '$parent' from group '$group'."); return;
-        } elseif ($action === 'list') {
-            if (!$sender->hasPermission('netherperms.group.parent.list')) { $sender->sendMessage(TF::RED . 'You lack permission netherperms.group.parent.list'); return; }
+        } elseif ($action === 'info') {
+            // Permission intentionally as requested: netherperms.user.parent.info
+            if (!$sender->hasPermission('netherperms.user.parent.info')) { $sender->sendMessage(TF::RED . 'You lack permission netherperms.user.parent.info'); return; }
             $g = $pm->getGroup($group); $parents = $g !== null ? ($g['parents'] ?? []) : [];
             $sender->sendMessage(TF::YELLOW . "Parents of '$group': " . (empty($parents) ? '(none)' : implode(', ', $parents)));
             return;
+        } elseif ($action === 'addtemp') {
+            // /np group <group> parent addtemp <parent> <duration> [context]
+            if (!$sender->hasPermission('netherperms.group.parent.addtemp')) { $sender->sendMessage(TF::RED . 'You lack permission netherperms.group.parent.addtemp'); return; }
+            if ($parent === null || !isset($args[5])) { $sender->sendMessage(TF::RED . 'Usage: /np group ' . $group . ' parent addtemp <parent> <duration> [context]'); return; }
+            $durationToken = (string)$args[5];
+            $seconds = DurationParser::parse($durationToken);
+            if ($seconds === null || $seconds <= 0) { $sender->sendMessage(TF::RED . 'Invalid duration. Examples: 10m, 1h30m, 2d'); return; }
+            $ctx = ContextUtil::parseContextArgs($args, 6);
+            $ok = $pm->addGroupTempParent($group, $parent, $seconds, $ctx);
+            if (!$ok) { $sender->sendMessage(TF::RED . 'Failed to add temporary parent (check parent exists or temporary-add-behaviour).'); return; }
+            $pm->save(); $this->applyOnlineAffectedByGroup($group);
+            $sender->sendMessage(TF::GREEN . "Temporarily added parent '$parent' to group '$group' for $durationToken.");
+            return;
+        } elseif ($action === 'removetemp') {
+            // /np group <group> parent removetemp <parent> [context]
+            if (!$sender->hasPermission('netherperms.group.parent.removetemp')) { $sender->sendMessage(TF::RED . 'You lack permission netherperms.group.parent.removetemp'); return; }
+            if ($parent === null) { $sender->sendMessage(TF::RED . 'Usage: /np group ' . $group . ' parent removetemp <parent> [context]'); return; }
+            $ctx = ContextUtil::parseContextArgs($args, 5);
+            $pm->unsetGroupTempParent($group, $parent, $ctx); $pm->save(); $this->applyOnlineAffectedByGroup($group);
+            $sender->sendMessage(TF::GREEN . "Removed temporary parent '$parent' from group '$group'.");
+            return;
         }
-        $sender->sendMessage(TF::RED . 'Unknown parent subcommand (use add/set/remove/list)');
+        $sender->sendMessage(TF::RED . 'Unknown parent subcommand (use add/set/remove/info/addtemp/removetemp)');
+    }
+
+    private function formatRemaining(int $seconds) : string
+    {
+        if ($seconds <= 0) return '';
+        $d = intdiv($seconds, 86400); $seconds %= 86400;
+        $h = intdiv($seconds, 3600); $seconds %= 3600;
+        $m = intdiv($seconds, 60); $s = $seconds % 60;
+        $parts = [];
+        if ($d > 0) $parts[] = $d . 'd';
+        if ($h > 0) $parts[] = $h . 'h';
+        if ($m > 0) $parts[] = $m . 'm';
+        if ($s > 0 && empty($parts)) $parts[] = $s . 's';
+        if ($s > 0 && !empty($parts)) $parts[] = $s . 's';
+        return implode(' ', $parts);
     }
 
     private function applyOnlineAffectedByGroup(string $group) : void

@@ -14,15 +14,21 @@ final class PermissionManager
      *      name: string,
      *      permissions: array<string, bool|array<string,bool>>, // bool or context-map
      *      temp_permissions?: array<int, array{node:string,value:bool,context:string,expires:int}>,
+     *      temp_parents?: array<int, array{group:string,context:string,expires:int}>,
      *      groups: string[],
      *      primary?: string,
-     *      meta?: array{prefix?: string, suffix?: string}
+     *      meta?: array{prefix?: string, suffix?: string},
+     *      meta_context?: array<string, array<string,string>>, // key => contextKey => value
+     *      temp_meta?: array<int, array{key:string,value:string,context:string,expires:int}>
      *  }>,
      *  groups: array<string, array{
      *      permissions: array<string, bool|array<string,bool>>, // bool or context-map
      *      parents: string[],
+     *      temp_parents?: array<int, array{parent:string,context:string,expires:int}>,
      *      weight?: int,
-     *      meta?: array{prefix?: string, suffix?: string}
+     *      meta?: array{prefix?: string, suffix?: string},
+     *      meta_context?: array<string, array<string,string>>, // key => contextKey => value
+     *      temp_meta?: array<int, array{key:string,value:string,context:string,expires:int}>
      *  }>,
      *  tracks: array<string, string[]>
      * }
@@ -55,7 +61,7 @@ final class PermissionManager
         }
         if ($tempAddBehaviour !== null) {
             $this->setTempAddBehaviour($tempAddBehaviour);
-        }
+         }
     }
 
     public function setTempAddBehaviour(string $behaviour) : void
@@ -92,21 +98,42 @@ final class PermissionManager
             $meta = (array)($info['meta'] ?? []);
             // normalize all meta values to strings
             foreach ($meta as $mk => $mv) { $meta[$mk] = (string)$mv; }
+            // normalize meta_context
+            $mctx = [];
+            foreach ((array)($info['meta_context'] ?? []) as $k => $ctxMap) {
+                if (!is_array($ctxMap)) continue; $kk = (string)$k; $mctx[$kk] = [];
+                foreach ($ctxMap as $ck => $val) { $mctx[$kk][(string)$ck] = (string)$val; }
+            }
+            // normalize temp_meta and purge expired
+            $now = time();
+            $tmeta = array_values(array_filter((array)($info['temp_meta'] ?? []), function($e) use ($now) {
+                if (!is_array($e)) return false; $exp = (int)($e['expires'] ?? 0); $key = (string)($e['key'] ?? ''); $val = (string)($e['value'] ?? '');
+                return $key !== '' && $val !== '' && $exp > $now;
+            }));
             // normalize temp_permissions and purge expired
             $temp = (array)($info['temp_permissions'] ?? []);
-            $now = time();
             $temp = array_values(array_filter($temp, function($e) use ($now) {
                 if (!is_array($e)) return false;
                 $exp = isset($e['expires']) ? (int)$e['expires'] : 0;
                 $node = isset($e['node']) ? (string)$e['node'] : '';
                 return $node !== '' && $exp > $now;
             }));
+            // normalize temp_parents and purge expired
+            $gTempParents = array_values(array_filter((array)($info['temp_parents'] ?? []), function($e) use ($now) {
+                if (!is_array($e)) return false;
+                $exp = isset($e['expires']) ? (int)$e['expires'] : 0;
+                $parent = isset($e['parent']) ? (string)$e['parent'] : '';
+                return $parent !== '' && $exp > $now;
+            }));
             $normalizedGroups[$lname] = [
                 'permissions' => (array)($info['permissions'] ?? []),
                 'parents' => $info['parents'],
                 'weight' => (int)($info['weight'] ?? 0),
                 'meta' => $meta,
-                'temp_permissions' => $temp
+                'meta_context' => $mctx,
+                'temp_meta' => $tmeta,
+                'temp_permissions' => $temp,
+                'temp_parents' => $gTempParents
             ];
         }
         $this->data['groups'] = $normalizedGroups;
@@ -131,6 +158,21 @@ final class PermissionManager
         foreach ($this->data['users'] as &$user) {
             $user['groups'] = array_values(array_unique(array_map('strtolower', $user['groups'] ?? [])));
             if (!isset($user['meta']) || !is_array($user['meta'])) $user['meta'] = [];
+            // normalize meta_context
+            if (!isset($user['meta_context']) || !is_array($user['meta_context'])) $user['meta_context'] = [];
+            $mc = [];
+            foreach ((array)$user['meta_context'] as $k => $map) {
+                if (!is_array($map)) continue; $kk = (string)$k; $mc[$kk] = [];
+                foreach ($map as $ck => $val) { $mc[$kk][(string)$ck] = (string)$val; }
+            }
+            $user['meta_context'] = $mc;
+            // normalize temp_meta and purge expired
+            if (!isset($user['temp_meta']) || !is_array($user['temp_meta'])) $user['temp_meta'] = [];
+            $now = time();
+            $user['temp_meta'] = array_values(array_filter((array)$user['temp_meta'], function($e) use ($now) {
+                if (!is_array($e)) return false; $exp = (int)($e['expires'] ?? 0); $key = (string)($e['key'] ?? ''); $val = (string)($e['value'] ?? '');
+                return $key !== '' && $val !== '' && $exp > $now;
+            }));
             if (!isset($user['temp_permissions']) || !is_array($user['temp_permissions'])) $user['temp_permissions'] = [];
             // Purge expired temp nodes on load
             $now = time();
@@ -140,6 +182,13 @@ final class PermissionManager
                 $node = isset($e['node']) ? (string)$e['node'] : '';
                 // context can be empty for global temp permission
                 return $node !== '' && $exp > $now;
+            }));
+            if (!isset($user['temp_parents']) || !is_array($user['temp_parents'])) $user['temp_parents'] = [];
+            $user['temp_parents'] = array_values(array_filter((array)$user['temp_parents'], function($e) use ($now) {
+                if (!is_array($e)) return false;
+                $exp = isset($e['expires']) ? (int)$e['expires'] : 0;
+                $parent = isset($e['group']) ? (string)$e['group'] : '';
+                return $parent !== '' && $exp > $now;
             }));
         }
         unset($user);
@@ -400,6 +449,113 @@ final class PermissionManager
         $parents = array_values(array_filter($parents, fn(string $g) => $g !== $parent));
     }
 
+    // --- Temporary parents (Users) ---
+    public function addUserTempParent(string $uuid, string $group, int $durationSeconds, array $context = []) : bool
+    {
+        if ($durationSeconds <= 0) return false;
+        $group = strtolower($group);
+        if (!isset($this->data['groups'][$group])) return false;
+        $ckey = $this->makeContextKey($context);
+        $now = time();
+        $expires = $now + $durationSeconds;
+        $list = (array)($this->data['users'][$uuid]['temp_parents'] ?? []);
+        $existing = array_values(array_filter($list, fn($e) => is_array($e) && (($e['group'] ?? '') === $group) && (($e['context'] ?? '') === $ckey) && (($e['expires'] ?? 0) > $now)));
+        if (!empty($existing)) {
+            $beh = $this->tempAddBehaviour;
+            if ($beh === 'deny') return false;
+            if ($beh === 'replace') {
+                $maxRemain = 0;
+                foreach ($existing as $e) { $r = ((int)$e['expires']) - $now; if ($r > $maxRemain) $maxRemain = $r; }
+                $keep = max($maxRemain, $durationSeconds);
+                $list = array_values(array_filter($list, fn($e) => !(is_array($e) && (($e['group'] ?? '') === $group) && (($e['context'] ?? '') === $ckey))));
+                $list[] = ['group'=>$group,'context'=>$ckey,'expires'=>$now + $keep];
+                $this->data['users'][$uuid]['temp_parents'] = $list;
+                return true;
+            }
+            if ($beh === 'accumulate') {
+                $totalRemain = 0; foreach ($existing as $e) { $r = ((int)$e['expires']) - $now; if ($r > 0) $totalRemain += $r; }
+                $newExp = $now + $totalRemain + $durationSeconds;
+                $list = array_values(array_filter($list, fn($e) => !(is_array($e) && (($e['group'] ?? '') === $group) && (($e['context'] ?? '') === $ckey))));
+                $list[] = ['group'=>$group,'context'=>$ckey,'expires'=>$newExp];
+                $this->data['users'][$uuid]['temp_parents'] = $list;
+                return true;
+            }
+        }
+        $list[] = ['group'=>$group,'context'=>$ckey,'expires'=>$expires];
+        $this->data['users'][$uuid]['temp_parents'] = $list;
+        return true;
+    }
+
+    public function unsetUserTempParent(string $uuid, string $group, array $context = []) : void
+    {
+        $group = strtolower($group);
+        $ckey = $this->makeContextKey($context);
+        $list = (array)($this->data['users'][$uuid]['temp_parents'] ?? []);
+        $out = [];
+        foreach ($list as $e) {
+            if (!is_array($e)) continue;
+            $g = isset($e['group']) ? (string)$e['group'] : '';
+            if ($g === '') continue;
+            if ($g !== $group) { $out[] = $e; continue; }
+            if ($ckey !== '' && isset($e['context']) && (string)$e['context'] !== $ckey) { $out[] = $e; continue; }
+            // else drop
+        }
+        $this->data['users'][$uuid]['temp_parents'] = array_values($out);
+    }
+
+    // --- Temporary parents (Groups) ---
+    public function addGroupTempParent(string $group, string $parent, int $durationSeconds, array $context = []) : bool
+    {
+        if ($durationSeconds <= 0) return false;
+        $group = strtolower($group); $parent = strtolower($parent);
+        if (!isset($this->data['groups'][$parent])) return false;
+        $ckey = $this->makeContextKey($context);
+        $now = time();
+        $expires = $now + $durationSeconds;
+        $list = (array)($this->data['groups'][$group]['temp_parents'] ?? []);
+        $existing = array_values(array_filter($list, fn($e) => is_array($e) && (($e['parent'] ?? '') === $parent) && (($e['context'] ?? '') === $ckey) && (($e['expires'] ?? 0) > $now)));
+        if (!empty($existing)) {
+            $beh = $this->tempAddBehaviour;
+            if ($beh === 'deny') return false;
+            if ($beh === 'replace') {
+                $maxRemain = 0; foreach ($existing as $e) { $r = ((int)$e['expires']) - $now; if ($r > $maxRemain) $maxRemain = $r; }
+                $keep = max($maxRemain, $durationSeconds);
+                $list = array_values(array_filter($list, fn($e) => !(is_array($e) && (($e['parent'] ?? '') === $parent) && (($e['context'] ?? '') === $ckey))));
+                $list[] = ['parent'=>$parent,'context'=>$ckey,'expires'=>$now + $keep];
+                $this->data['groups'][$group]['temp_parents'] = $list;
+                return true;
+            }
+            if ($beh === 'accumulate') {
+                $totalRemain = 0; foreach ($existing as $e) { $r = ((int)$e['expires']) - $now; if ($r > 0) $totalRemain += $r; }
+                $newExp = $now + $totalRemain + $durationSeconds;
+                $list = array_values(array_filter($list, fn($e) => !(is_array($e) && (($e['parent'] ?? '') === $parent) && (($e['context'] ?? '') === $ckey))));
+                $list[] = ['parent'=>$parent,'context'=>$ckey,'expires'=>$newExp];
+                $this->data['groups'][$group]['temp_parents'] = $list;
+                return true;
+            }
+        }
+        $list[] = ['parent'=>$parent,'context'=>$ckey,'expires'=>$expires];
+        $this->data['groups'][$group]['temp_parents'] = $list;
+        return true;
+    }
+
+    public function unsetGroupTempParent(string $group, string $parent, array $context = []) : void
+    {
+        $group = strtolower($group); $parent = strtolower($parent);
+        $ckey = $this->makeContextKey($context);
+        $list = (array)($this->data['groups'][$group]['temp_parents'] ?? []);
+        $out = [];
+        foreach ($list as $e) {
+            if (!is_array($e)) continue;
+            $p = isset($e['parent']) ? (string)$e['parent'] : '';
+            if ($p === '') continue;
+            if ($p !== $parent) { $out[] = $e; continue; }
+            if ($ckey !== '' && isset($e['context']) && (string)$e['context'] !== $ckey) { $out[] = $e; continue; }
+            // else drop
+        }
+        $this->data['groups'][$group]['temp_parents'] = array_values($out);
+    }
+
     // Back-compat wrappers used by UI layer
     public function addGroupParent(string $group, string $parent) : void { $this->addParent($group, $parent); }
     public function removeGroupParent(string $group, string $parent) : void { $this->removeParent($group, $parent); }
@@ -429,7 +585,20 @@ final class PermissionManager
         $order = [];
         // 1) from membership
         foreach (($this->data['users'][$uuid]['groups'] ?? []) as $g) {
-            $this->traverseGroupOrder(strtolower($g), $visited, $order);
+            $this->traverseGroupOrder(strtolower($g), $visited, $order, $context);
+        }
+        // include temporary user parents that match context
+        $now = time();
+        foreach ((array)($this->data['users'][$uuid]['temp_parents'] ?? []) as $tp) {
+            if (!is_array($tp)) continue;
+            $g = isset($tp['group']) ? (string)$tp['group'] : '';
+            $exp = isset($tp['expires']) ? (int)$tp['expires'] : 0;
+            $ck = isset($tp['context']) ? (string)$tp['context'] : '';
+            if ($g === '' || $exp <= $now) continue;
+            $conds = $this->parseContextKey($ck);
+            if ($this->contextMatches($conds, $context)) {
+                $this->traverseGroupOrder(strtolower($g), $visited, $order, $context);
+            }
         }
         // 2) from explicit user permission nodes `group.<name>` granted true in this context
         foreach (($this->data['users'][$uuid]['permissions'] ?? []) as $node => $value) {
@@ -438,7 +607,7 @@ final class PermissionManager
                 if ($groupName !== '' && isset($this->data['groups'][$groupName])) {
                     $res = $this->resolveWithSpecificity($value, $context);
                     if ($res !== null && $res['value'] === true) {
-                        $this->traverseGroupOrder($groupName, $visited, $order);
+                        $this->traverseGroupOrder($groupName, $visited, $order, $context);
                     }
                 }
             }
@@ -640,13 +809,27 @@ final class PermissionManager
     /**
      * @param array{world?:string,gamemode?:string,dimension?:string} $context
      */
-    private function traverseGroupOrder(string $group, array &$visited, array &$order) : void
+    private function traverseGroupOrder(string $group, array &$visited, array &$order, array $context = []) : void
     {
         $group = strtolower($group);
         if (isset($visited[$group]) || !isset($this->data['groups'][$group])) return;
         $visited[$group] = true;
+        // permanent parents
         foreach (($this->data['groups'][$group]['parents'] ?? []) as $parent) {
-            $this->traverseGroupOrder(strtolower((string)$parent), $visited, $order);
+            $this->traverseGroupOrder(strtolower((string)$parent), $visited, $order, $context);
+        }
+        // temporary parents matching context
+        $now = time();
+        foreach ((array)($this->data['groups'][$group]['temp_parents'] ?? []) as $tp) {
+            if (!is_array($tp)) continue;
+            $p = isset($tp['parent']) ? (string)$tp['parent'] : '';
+            $exp = isset($tp['expires']) ? (int)$tp['expires'] : 0;
+            $ck = isset($tp['context']) ? (string)$tp['context'] : '';
+            if ($p === '' || $exp <= $now) continue;
+            $conds = $this->parseContextKey($ck);
+            if ($this->contextMatches($conds, $context)) {
+                $this->traverseGroupOrder(strtolower($p), $visited, $order, $context);
+            }
         }
         $order[] = $group;
     }
@@ -655,6 +838,10 @@ final class PermissionManager
     public function getUser(string $uuid) : ?array { return $this->data['users'][$uuid] ?? null; }
     public function getGroup(string $group) : ?array { $group = strtolower($group); return $this->data['groups'][$group] ?? null; }
     public function getUserGroups(string $uuid) : array { return $this->data['users'][$uuid]['groups'] ?? []; }
+    /** @return array<int,array{group:string,context:string,expires:int}> */
+    public function getUserTempParents(string $uuid) : array { return (array)($this->data['users'][$uuid]['temp_parents'] ?? []); }
+    /** @return array<int,array{parent:string,context:string,expires:int}> */
+    public function getGroupTempParents(string $group) : array { $group = strtolower($group); return (array)($this->data['groups'][$group]['temp_parents'] ?? []); }
     public function getAllGroups() : array { return $this->data['groups']; }
     public function getTracks() : array { return $this->data['tracks']; }
     public function createTrack(string $track) : void { $this->data['tracks'][strtolower($track)] = $this->data['tracks'][strtolower($track)] ?? []; }
@@ -808,6 +995,68 @@ final class PermissionManager
         $group = strtolower($group);
         unset($this->data['groups'][$group]['meta'][$key]);
         $this->syncGroupMetaNodes($group);
+    }
+
+    // --- Meta: context and temporary ---
+    public function setUserMetaContext(string $uuid, string $key, string $value, array $context = []) : void
+    {
+        $ckey = $this->makeContextKey($context);
+        if (!isset($this->data['users'][$uuid]['meta_context'][$key])) $this->data['users'][$uuid]['meta_context'][$key] = [];
+        $this->data['users'][$uuid]['meta_context'][$key][$ckey] = $value;
+    }
+    public function unsetUserMetaContext(string $uuid, string $key, array $context = []) : void
+    {
+        $ckey = $this->makeContextKey($context);
+        if (isset($this->data['users'][$uuid]['meta_context'][$key])) {
+            if ($ckey === '') { unset($this->data['users'][$uuid]['meta_context'][$key]); }
+            else { unset($this->data['users'][$uuid]['meta_context'][$key][$ckey]); if (empty($this->data['users'][$uuid]['meta_context'][$key])) unset($this->data['users'][$uuid]['meta_context'][$key]); }
+        }
+    }
+    public function addUserTempMeta(string $uuid, string $key, string $value, int $durationSeconds, array $context = []) : bool
+    {
+        if ($durationSeconds <= 0) return false; $now = time();
+        $ckey = $this->makeContextKey($context);
+        $list = (array)($this->data['users'][$uuid]['temp_meta'] ?? []);
+        $list[] = ['key'=>$key,'value'=>$value,'context'=>$ckey,'expires'=>$now + $durationSeconds];
+        $this->data['users'][$uuid]['temp_meta'] = $list; return true;
+    }
+    public function unsetUserTempMeta(string $uuid, string $key, array $context = []) : void
+    {
+        $ckey = $this->makeContextKey($context); $list = (array)($this->data['users'][$uuid]['temp_meta'] ?? []); $out = [];
+        foreach ($list as $e) {
+            if (!is_array($e)) continue; $k = (string)($e['key'] ?? ''); $c = (string)($e['context'] ?? '');
+            if ($k === $key && ($ckey === '' || $ckey === $c)) continue; $out[] = $e;
+        }
+        $this->data['users'][$uuid]['temp_meta'] = array_values($out);
+    }
+
+    public function setGroupMetaContext(string $group, string $key, string $value, array $context = []) : void
+    {
+        $group = strtolower($group); $ckey = $this->makeContextKey($context);
+        if (!isset($this->data['groups'][$group]['meta_context'][$key])) $this->data['groups'][$group]['meta_context'][$key] = [];
+        $this->data['groups'][$group]['meta_context'][$key][$ckey] = $value; $this->syncGroupMetaNodes($group);
+    }
+    public function unsetGroupMetaContext(string $group, string $key, array $context = []) : void
+    {
+        $group = strtolower($group); $ckey = $this->makeContextKey($context);
+        if (isset($this->data['groups'][$group]['meta_context'][$key])) {
+            if ($ckey === '') { unset($this->data['groups'][$group]['meta_context'][$key]); }
+            else { unset($this->data['groups'][$group]['meta_context'][$key][$ckey]); if (empty($this->data['groups'][$group]['meta_context'][$key])) unset($this->data['groups'][$group]['meta_context'][$key]); }
+        }
+        $this->syncGroupMetaNodes($group);
+    }
+    public function addGroupTempMeta(string $group, string $key, string $value, int $durationSeconds, array $context = []) : bool
+    {
+        if ($durationSeconds <= 0) return false; $now = time(); $group = strtolower($group);
+        $ckey = $this->makeContextKey($context); $list = (array)($this->data['groups'][$group]['temp_meta'] ?? []);
+        $list[] = ['key'=>$key,'value'=>$value,'context'=>$ckey,'expires'=>$now + $durationSeconds];
+        $this->data['groups'][$group]['temp_meta'] = $list; $this->syncGroupMetaNodes($group); return true;
+    }
+    public function unsetGroupTempMeta(string $group, string $key, array $context = []) : void
+    {
+        $group = strtolower($group); $ckey = $this->makeContextKey($context); $list = (array)($this->data['groups'][$group]['temp_meta'] ?? []); $out = [];
+        foreach ($list as $e) { if (!is_array($e)) continue; $k = (string)($e['key'] ?? ''); $c = (string)($e['context'] ?? ''); if ($k === $key && ($ckey === '' || $ckey === $c)) continue; $out[] = $e; }
+        $this->data['groups'][$group]['temp_meta'] = array_values($out); $this->syncGroupMetaNodes($group);
     }
     public function setUserMeta(string $uuid, string $key, string $value) : void {
         $this->data['users'][$uuid]['meta'][$key] = $value;

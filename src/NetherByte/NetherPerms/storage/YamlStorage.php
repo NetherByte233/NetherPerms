@@ -41,6 +41,76 @@ final class YamlStorage implements StorageInterface
         $this->reload();
     }
 
+    /**
+     * Normalize meta_context from YAML to strings
+     * @param array<string,mixed> $map
+     * @return array<string,array<string,string>>
+     */
+    private function normalizeMetaContextRead(array $map) : array
+    {
+        $out = [];
+        foreach ($map as $key => $ctxMap) {
+            if (!is_array($ctxMap)) continue; $key = (string)$key; $out[$key] = [];
+            foreach ($ctxMap as $ck => $val) { $out[$key][(string)$ck] = (string)$val; }
+        }
+        return $out;
+    }
+
+    /**
+     * Normalize temp_meta entries list to absolute expires
+     * @param array<int,mixed> $list
+     * @return array<int,array{key:string,value:string,context:string,expires:int}>
+     */
+    private function normalizeTempMetaRead(array $list) : array
+    {
+        $now = time(); $out = [];
+        foreach ($list as $e) {
+            if (!is_array($e)) continue;
+            $key = isset($e['key']) ? (string)$e['key'] : '';
+            $val = isset($e['value']) ? (string)$e['value'] : '';
+            $ctx = isset($e['context']) ? (string)$e['context'] : '';
+            if ($key === '' || $val === '') continue;
+            $exp = isset($e['remaining']) ? ($now + max(0, (int)$e['remaining'])) : (int)($e['expires'] ?? 0);
+            if ($exp <= $now) continue;
+            $out[] = ['key'=>$key,'value'=>$val,'context'=>$ctx,'expires'=>$exp];
+        }
+        return $out;
+    }
+
+    /**
+     * Prepare meta_context for YAML
+     * @param array<string,array<string,string>> $map
+     */
+    private function prepareMetaContextForWrite(array $map) : array
+    {
+        $out = [];
+        foreach ($map as $key => $ctxMap) {
+            $key = (string)$key; $out[$key] = [];
+            foreach ((array)$ctxMap as $ck => $val) { $out[$key][(string)$ck] = (string)$val; }
+        }
+        return $out;
+    }
+
+    /**
+     * Prepare temp_meta entries for YAML using remaining seconds
+     * @param array<int,mixed> $list
+     * @return array<int,array{key:string,value:string,context:string,remaining:int}>
+     */
+    private function prepareTempMetaForWrite(array $list) : array
+    {
+        $now = time(); $out = [];
+        foreach ($list as $e) {
+            if (!is_array($e)) continue;
+            $key = isset($e['key']) ? (string)$e['key'] : '';
+            $val = isset($e['value']) ? (string)$e['value'] : '';
+            $ctx = isset($e['context']) ? (string)$e['context'] : '';
+            $exp = isset($e['expires']) ? (int)$e['expires'] : 0;
+            if ($key === '' || $val === '' || $exp <= $now) continue;
+            $out[] = ['key'=>$key,'value'=>$val,'context'=>$ctx,'remaining'=>max(0, $exp - $now)];
+        }
+        return $out;
+    }
+
     public function reload() : void
     {
         // If any of the new directories contain data, prefer loading per-entity files.
@@ -139,15 +209,24 @@ final class YamlStorage implements StorageInterface
                 'parents' => [],
                 'weight' => 0,
                 'meta' => [],
-                'temp_permissions' => []
+                'temp_permissions' => [],
+                'temp_parents' => [],
+                'meta_context' => [],
+                'temp_meta' => []
             ]);
             $gtemps = (array)$cfg->get('temp_permissions', []);
+            $gtempParents = (array)$cfg->get('temp_parents', []);
+            $gMetaCtx = (array)$cfg->get('meta_context', []);
+            $gTempMeta = (array)$cfg->get('temp_meta', []);
             $out[$name] = [
                 'permissions' => (array)$cfg->get('permissions', []),
                 'parents' => (array)$cfg->get('parents', []),
                 'weight' => (int)$cfg->get('weight', 0),
                 'meta' => (array)$cfg->get('meta', []),
                 'temp_permissions' => $this->normalizeTempRead($gtemps),
+                'temp_parents' => $this->normalizeTempParentsRead($gtempParents, 'group'),
+                'meta_context' => $this->normalizeMetaContextRead($gMetaCtx),
+                'temp_meta' => $this->normalizeTempMetaRead($gTempMeta)
             ];
         }
         return $out;
@@ -175,15 +254,24 @@ final class YamlStorage implements StorageInterface
                 'name' => $uuid,
                 'permissions' => [],
                 'temp_permissions' => [],
+                'temp_parents' => [],
                 'groups' => [],
                 'primary' => null,
                 'meta' => [],
+                'meta_context' => [],
+                'temp_meta' => []
             ]);
             $utemps = (array)$cfg->get('temp_permissions', []);
+            $utempParents = (array)$cfg->get('temp_parents', []);
+            $uMetaCtx = (array)$cfg->get('meta_context', []);
+            $uTempMeta = (array)$cfg->get('temp_meta', []);
             $out[$uuid] = [
                 'name' => (string)$cfg->get('name', $uuid),
                 'permissions' => (array)$cfg->get('permissions', []),
                 'temp_permissions' => $this->normalizeTempRead($utemps),
+                'temp_parents' => $this->normalizeTempParentsRead($utempParents, 'user'),
+                'meta_context' => $this->normalizeMetaContextRead($uMetaCtx),
+                'temp_meta' => $this->normalizeTempMetaRead($uTempMeta),
                 'groups' => (array)$cfg->get('groups', []),
                 'primary' => $cfg->get('primary', null),
                 'meta' => (array)$cfg->get('meta', []),
@@ -212,6 +300,9 @@ final class YamlStorage implements StorageInterface
             $cfg->set('weight', (int)($data['weight'] ?? 0));
             $cfg->set('meta', (array)($data['meta'] ?? []));
             $cfg->set('temp_permissions', $this->prepareTempForWrite((array)($data['temp_permissions'] ?? [])));
+            $cfg->set('temp_parents', $this->prepareTempParentsForWrite((array)($data['temp_parents'] ?? []), 'group'));
+            $cfg->set('meta_context', $this->prepareMetaContextForWrite((array)($data['meta_context'] ?? [])));
+            $cfg->set('temp_meta', $this->prepareTempMetaForWrite((array)($data['temp_meta'] ?? [])));
             $cfg->save();
         }
     }
@@ -243,11 +334,12 @@ final class YamlStorage implements StorageInterface
         foreach ($users as $uuid => $data) {
             $permissions = (array)($data['permissions'] ?? []);
             $temp = (array)($data['temp_permissions'] ?? []);
+            $tempParents = (array)($data['temp_parents'] ?? []);
             $meta = (array)($data['meta'] ?? []);
             $groups = (array)($data['groups'] ?? []);
             $primary = $data['primary'] ?? null;
 
-            $shouldCreate = !empty($permissions) || !empty($temp) || !empty($meta) || !empty($groups) || ($primary !== null && $primary !== '');
+            $shouldCreate = !empty($permissions) || !empty($temp) || !empty($tempParents) || !empty($meta) || !empty($groups) || ($primary !== null && $primary !== '');
             if (!$shouldCreate) {
                 // Do not create or overwrite file if user has nothing extra; skip
                 continue;
@@ -258,6 +350,9 @@ final class YamlStorage implements StorageInterface
             $cfg->set('name', (string)($data['name'] ?? $uuid));
             $cfg->set('permissions', $permissions);
             $cfg->set('temp_permissions', $this->prepareTempForWrite($temp));
+            $cfg->set('temp_parents', $this->prepareTempParentsForWrite($tempParents, 'user'));
+            $cfg->set('meta_context', $this->prepareMetaContextForWrite((array)($data['meta_context'] ?? [])));
+            $cfg->set('temp_meta', $this->prepareTempMetaForWrite((array)($data['temp_meta'] ?? [])));
             $cfg->set('groups', $groups);
             $cfg->set('primary', $primary);
             $cfg->set('meta', $meta);
@@ -321,6 +416,61 @@ final class YamlStorage implements StorageInterface
                 'context' => $ctx,
                 'remaining' => $remaining,
             ];
+        }
+        return $out;
+    }
+
+    /**
+     * Normalize temp parents read from YAML.
+     * For users: entries are {group, context, remaining|expires}
+     * For groups: entries are {parent, context, remaining|expires}
+     * @param array<int,mixed> $list
+     * @return array<int,array{group?:string,parent?:string,context:string,expires:int}>
+     */
+    private function normalizeTempParentsRead(array $list, string $type) : array
+    {
+        $now = time();
+        $out = [];
+        foreach ($list as $e) {
+            if (!is_array($e)) continue;
+            $nameKey = $type === 'user' ? 'group' : 'parent';
+            $nm = isset($e[$nameKey]) ? (string)$e[$nameKey] : '';
+            $ctx = isset($e['context']) ? (string)$e['context'] : '';
+            if ($nm === '') continue;
+            if (isset($e['remaining'])) {
+                $rem = max(0, (int)$e['remaining']);
+                $exp = $now + $rem;
+            } else {
+                $exp = isset($e['expires']) ? (int)$e['expires'] : 0;
+            }
+            if ($exp <= $now) continue;
+            $row = [ 'context' => $ctx, 'expires' => $exp ];
+            $row[$nameKey] = $nm;
+            $out[] = $row;
+        }
+        return $out;
+    }
+
+    /**
+     * Prepare temp parents for YAML write storing remaining seconds.
+     * @param array<int,mixed> $list
+     * @return array<int,array{group?:string,parent?:string,context:string,remaining:int}>
+     */
+    private function prepareTempParentsForWrite(array $list, string $type) : array
+    {
+        $now = time();
+        $out = [];
+        foreach ($list as $e) {
+            if (!is_array($e)) continue;
+            $nameKey = $type === 'user' ? 'group' : 'parent';
+            $nm = isset($e[$nameKey]) ? (string)$e[$nameKey] : '';
+            $ctx = isset($e['context']) ? (string)$e['context'] : '';
+            $exp = isset($e['expires']) ? (int)$e['expires'] : 0;
+            if ($nm === '' || $exp <= $now) continue;
+            $remaining = max(0, $exp - $now);
+            $row = [ 'context' => $ctx, 'remaining' => $remaining ];
+            $row[$nameKey] = $nm;
+            $out[] = $row;
         }
         return $out;
     }

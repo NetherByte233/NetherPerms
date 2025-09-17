@@ -1,6 +1,6 @@
 name: NetherPerms
 main: NetherByte\NetherPerms\NetherPerms
-version: 0.1.0
+version: 1.0.0
 api: 5.0.0
 author: NetherByte
 website: https://example.com
@@ -108,9 +108,17 @@ permissions:
     default: op
     description: Remove a parent from a group
 
-  netherperms.group.parent.list:
+  netherperms.user.parent.info:
     default: op
-    description: List group parents
+    description: Show a group's parents (used by /np group <group> parent info)
+
+  netherperms.group.parent.addtemp:
+    default: op
+    description: Temporarily add a parent to a group (not yet supported)
+
+  netherperms.group.parent.removetemp:
+    default: op
+    description: Remove a temporary parent from a group (not yet supported)
 
   netherperms.group.listmembers:
     default: op
@@ -197,9 +205,17 @@ permissions:
     default: op
     description: Remove a parent group from a user
 
-  netherperms.user.parent.list:
+  netherperms.group.parent.info:
     default: op
-    description: List a user's parents
+    description: Show a user's parents (used by /np user <user> parent info)
+
+  netherperms.user.parent.addtemp:
+    default: op
+    description: Temporarily add a parent group to a user (not yet supported)
+
+  netherperms.user.parent.removetemp:
+    default: op
+    description: Remove a temporary parent group from a user (not yet supported)
 
   netherperms.user.parent.switchprimarygroup:
     default: op

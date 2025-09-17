@@ -186,12 +186,12 @@ final class NetherPermsExpansion extends Expansion
         }
         if (str_starts_with($identifier, 'netherperms_group_expiry_time_')) {
             $group = strtolower(substr($identifier, strlen('netherperms_group_expiry_time_')));
-            $remain = $this->tempGroupRemaining($pm, $uuid, $group);
+            $remain = $this->tempGroupRemaining($pm, $uuid, $group, false);
             return $this->formatRemaining($remain);
         }
         if (str_starts_with($identifier, 'netherperms_inherited_group_expiry_time_')) {
             $group = strtolower(substr($identifier, strlen('netherperms_inherited_group_expiry_time_')));
-            $remain = $this->tempGroupRemaining($pm, $uuid, $group);
+            $remain = $this->tempGroupRemaining($pm, $uuid, $group, true);
             return $this->formatRemaining($remain);
         }
 
@@ -293,23 +293,38 @@ final class NetherPermsExpansion extends Expansion
         return $best;
     }
 
-    private function tempGroupRemaining($pm, string $uuid, string $group) : int
+    private function tempGroupRemaining($pm, string $uuid, string $group, bool $includeInherited) : int
     {
-        // Heuristic: treat temp permission nodes like "group.<group>" or "group:<group>" as timed group membership.
-        // If your server uses a different convention, you can add it here.
         $user = $pm->getUser($uuid) ?? null;
         if ($user === null) return 0;
         $now = time();
         $best = 0;
-        $want = ["group.$group", "group:$group", "netherperms.group.$group"]; // possible node encodings
-        $temps = (array)($user['temp_permissions'] ?? []);
-        foreach ($temps as $ent) {
+        $group = strtolower($group);
+        // Direct: user temp parents
+        $utp = (array)($user['temp_parents'] ?? []);
+        foreach ($utp as $ent) {
             if (!is_array($ent)) continue;
-            $n = isset($ent['node']) ? strtolower((string)$ent['node']) : '';
+            $g = isset($ent['group']) ? strtolower((string)$ent['group']) : '';
             $exp = isset($ent['expires']) ? (int)$ent['expires'] : 0;
-            if ($n !== '' && in_array($n, $want, true) && $exp > $now) {
-                $remain = $exp - $now;
-                if ($remain > $best) $best = $remain;
+            if ($g === $group && $exp > $now) {
+                $remain = $exp - $now; if ($remain > $best) $best = $remain;
+            }
+        }
+        if ($includeInherited) {
+            // Consider group temp parents on any of the user's direct groups
+            $allGroups = $pm->getAllGroups();
+            foreach ((array)$pm->getUserGroups($uuid) as $dg) {
+                $dg = strtolower((string)$dg);
+                $gd = $allGroups[$dg] ?? null; if ($gd === null) continue;
+                $gtp = (array)($gd['temp_parents'] ?? []);
+                foreach ($gtp as $ent) {
+                    if (!is_array($ent)) continue;
+                    $p = isset($ent['parent']) ? strtolower((string)$ent['parent']) : '';
+                    $exp = isset($ent['expires']) ? (int)$ent['expires'] : 0;
+                    if ($p === $group && $exp > $now) {
+                        $remain = $exp - $now; if ($remain > $best) $best = $remain;
+                    }
+                }
             }
         }
         return $best;
