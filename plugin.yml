@@ -5,7 +5,7 @@ api: 5.0.0
 author: NetherByte
 website: https://example.com
 softdepend:
-  - PlaceholderAPI
+  - PlaceholderAPI_NB
 permissions:
   netherperms.command:
     default: op
